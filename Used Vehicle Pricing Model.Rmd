@@ -1,0 +1,435 @@
+---
+title: 'BAX 452 Final Project: Carvana Analysis'
+author: "Weitian Xie"
+date: "3/15/2021"
+output: pdf_document
+---
+
+```{r setup}
+library(Hmisc)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+require(caTools)
+library(glmnet)
+library(broom)
+
+bmw <- read.csv("bmw.csv")
+head(bmw)
+```
+
+# Data Cleaning
+
+First we will engineer some of our columns to aid in later analysis. This includes creating new columns, making dummy columns, simplifying factor variables with many levels, and removing invalid rows.
+
+```{r cleaning}
+# create year column from model and separate it from the model column
+bmw$year = substr(bmw$model,1,4) #model of bmw
+bmw$model = gsub(" ", "", substr(bmw$model, 10, 11)) 
+
+#Fuel Type, Dummy, 1 for Gas 0 for Electric
+# This dummy is important. Need to interact with MPG and Cylinder later
+bmw$gasoline = ifelse(bmw$fuel_description == "Gas", 1, 0)
+
+# AWD? dummy
+bmw$AWD = ifelse(bmw$drive_trains == "AWD", 1, 0)
+
+#avg mpg = average of city mpg and hwy mpg
+bmw$mpg = (bmw$mpg_city + bmw$mpg_hwy)/2
+
+#Exterior color
+bmw$ext_color = ifelse(bmw$ext_color == "Black"|bmw$ext_color == "Blue"|bmw$ext_color == "Gray"|bmw$ext_color == "Silver"|bmw$ext_color == "White", bmw$ext_color, "Rare")
+
+#Interior color, expensive for the more upstate options
+#common for default colors
+#This will also impute "common" for missing colors
+bmw$int_color = ifelse(grepl("Merino", bmw$int_color)|grepl("Red", bmw$int_color)|grepl("Vernasca", bmw$int_color)|grepl("Cognac", bmw$int_color)|grepl("RED", bmw$int_color)|grepl("Blue", bmw$int_color)|grepl("Orange", bmw$int_color)|grepl("Brown", bmw$int_color)|grepl("Brown", bmw$int_color)|grepl("Ivory", bmw$int_color)|grepl("White", bmw$int_color)|grepl("MERINO", bmw$int_color),"expensive", "common")
+
+#Delete rows with no data
+bmw <- bmw[!(bmw$VIN == ''),]
+```
+
+# Missing Value Imputation
+As a result of our webscrape, there are some null values existing in some of our selected variables. To optimize our analysis, we'll impute them using the Hmisc package. This will handle both continuous and categorical variables by imputing them with a predictive mean matching algorithm.
+
+```{r impute}
+# Check char columns for missing data
+lapply(bmw,function(x) { length(which(x == ""))})
+# Replace "" with NA for imputation purposes
+bmw[bmw == ""] <- NA
+
+# Check numerical columns for missing values
+min(bmw$price) # good
+min(bmw$mileage) # 1; odd but it's possible
+min(bmw$cylinder_count) # 0; replace with NA
+min(bmw$horsepower) # 0; replace with NA
+min(bmw$torque) # 0; replace with NA
+min(bmw$mpg_city) # 0; replace with NA
+min(bmw$mpg_hwy) # 0; replace with NA
+
+bmw$cylinder_count[bmw$cylinder_count == 0 & bmw$model!="i3"] <- NA
+bmw$horsepower[bmw$horsepower == 0& bmw$model!="i3"]  <- NA
+bmw$torque[bmw$torque == 0& bmw$model!="i3"] <- NA
+bmw$mpg[bmw$mpg == 0& bmw$model!="i3"] <- NA
+```
+
+First we want to drop data that are missing crucial information, like VIN and model. After dropping that row, the variables we want to impute are fuel_description, drive_trains, and int_color. Other variables we will likely drop.
+
+```{r}
+set.seed(400)
+
+impute_data <- aregImpute(~ cylinder_count + horsepower + torque + mpg + int_color, data = bmw, n.impute = 5, type = "pmm", nk = 0)
+
+impute_data
+#Replace columns with imputed data
+cylinder_impute <- fit.mult.impute(cylinder_count ~ horsepower + torque + mpg, fitter = lm, xtrans = impute_data, data =  bmw, n.impute = 2)
+
+horsepower_impute <- fit.mult.impute(horsepower ~ cylinder_count + torque + mpg, fitter = lm, xtrans = impute_data, data =  bmw, n.impute = 2)
+
+torque_impute <- fit.mult.impute(torque ~ cylinder_count + horsepower + mpg, fitter = lm, xtrans = impute_data, data =  bmw, n.impute = 2)
+
+mpg_impute <- fit.mult.impute(mpg ~ cylinder_count + horsepower + torque, fitter = lm, xtrans = impute_data, data =  bmw, n.impute = 2)
+
+
+cylinder_impute <- cylinder_impute$fitted.values[impute_data$na$cylinder_count]
+cylinder_impute <- round(cylinder_impute)
+cylinder_impute[cylinder_impute == 5] <- 6
+cylinder_impute[cylinder_impute == 7] <- 8
+bmw$cylinder_count[impute_data$na$cylinder_count] <- cylinder_impute
+
+horsepower_impute <- horsepower_impute$fitted.values[impute_data$na$horsepower]
+bmw$horsepower[impute_data$na$horsepower] <- horsepower_impute
+
+torque_impute <- torque_impute$fitted.values[impute_data$na$torque]
+torque_impute <- round(torque_impute)
+bmw$torque[impute_data$na$torque] <- torque_impute
+
+mpg_impute <- mpg_impute$fitted.values[impute_data$na$mpg]
+mpg_impute <- round(mpg_impute,1)
+bmw$mpg[impute_data$na$mpg] <- mpg_impute
+```
+
+Data Viz\
+visualizing some data
+
+``` {r viz}
+year = bmw$year
+model = bmw$model
+price = bmw$price
+mileage = bmw$mileage
+cylinder = bmw$cylinder_count
+horsepower = bmw$horsepower
+torque = bmw$torque
+seats = bmw$seats
+doors = bmw$doors
+great_deal = as.factor(bmw$great_deal)
+saves = bmw$saves
+views = bmw$views
+photos = bmw$photo_count
+imperfections = bmw$imperfections
+int_color=bmw$int_color
+ext_color=bmw$ext_color
+gasoline = as.factor(bmw$gasoline)
+AWD = as.factor(bmw$AWD)
+mpg = bmw$mpg
+
+## This is the df for our analysis
+# Do not include doors. It has high multicollinearity
+df = data.frame(year, model, price, mileage, cylinder, horsepower, torque, gasoline, AWD, seats, mpg, ext_color, int_color, great_deal, saves, views, photos, imperfections)
+
+#add another column car_type, M car, SUV, Sedan, i3 and Z4
+type1 = ifelse(grepl("M", df$model), "M Performance", df$model)
+type2 = ifelse(grepl("X", type1), "SUV", type1)
+car_type = ifelse(nchar(type2) == 1|grepl("Z", type2), "Sedan/Coupe/Convertible", type2)
+
+# Price range based on car category
+# Looks like BMW SUV and Sedans are not that different in price. Sedan has more variation in price range.
+p1<-ggplot(df, aes(x=model, y=price, color = car_type)) + geom_boxplot() + scale_x_discrete(limits=c("Z4","1", "2", "3", "4", "5", "6", "7", "X1", "X2", "X3", "X4", "X5", "X6","X7","M3","M4","M5","M6","i3"))
+p1
+
+#Depreciation trend line by year
+df_mean <- df %>% group_by(year) %>% 
+summarize(average = mean(price))
+
+p2 = ggplot(mapping = aes(x = year, y = price)) +geom_boxplot() + scale_x_discrete(limits=c("2020", "2019", "2018", "2017","2016","2015","2014","2013","2012","2011","2010","2009")) + geom_point(data = df_mean, mapping = aes(x = year, y = average),color="red")+geom_line(data = df_mean, mapping = aes(x = year, y = average, group=1))
+p2
+
+# Plot of car price by imperfection. Does not look like a strong relationship
+p3=ggplot(df, aes(x=imperfections, y=price, group = imperfections)) + geom_boxplot(fill="gray") + labs(title = "Price against Imperfections")
+p3
+
+# Mileage and Price points
+# Does look like mileage has a negative impact on Price
+# Also, the higher the mileage, the smaller the variance of the price
+p4 = ggplot(df, aes(x=mileage, y=price)) + geom_point() + labs(title = "Price and Mileage") + geom_smooth(method = "lm")
+p4
+
+# Distribution of inventory Model by year
+p5 = ggplot(df, aes(x=factor(year), fill=car_type))+ geom_bar(stat="count", width=0.7) + labs(title = "Invetory Distribution by Car Year", x = "Manufactured Year", y = "Number of Cars") 
+p5
+
+# Change all the models M3, M4, M5, M6 to "M Performance"
+# This is because we want train and test set to contain same levels
+# With the scarcity M cars, it is possible that train and test contain different M models.
+# This will result NA value in predictions
+df$model = ifelse(grepl("M", df$model), "M Performance", df$model)
+```
+
+#Random Forest model
+We'll now fit a random forest model to predict price from our selected features. We'll use a train/test split of 66/33, given how small our sample is.
+
+```{r rf}
+set.seed(7)
+sample = sample.split(price, SplitRatio = 0.66)
+
+train = subset(df, sample == TRUE)
+test  = subset(df, sample == FALSE)
+
+# Tune the parameter mtry, or the number of variables to try at each node of the trees
+
+set.seed(7)
+bestmtry <- tuneRF(df[-3], df$price, stepFactor=1.5, improve=1e-5, ntree=500, na.action = na.exclude)
+
+print(bestmtry)
+mtry <- which(bestmtry == min(bestmtry[,2]))
+mtry
+
+# Next fit a random forest model on our training dataset with our optimized mtry parameter
+
+rf <- randomForest(price~., data = train, mtry = mtry, importance = TRUE)
+rf
+
+# Predict on test and show OOS accuracy
+pred = predict(rf, newdata = test)
+
+# Calculate OOS MSE of the predictions
+mse_rf <- sum((pred - test$price)^2)/length(pred)
+
+# Show feature importance
+varImpPlot(rf, main = "Variable Importance to Price")
+```
+
+The variable importance plot tells us what variables are most important when influencing the price of a car listing. While both plots convey similar information, the leftmost plot shows each variable's influence on MSE if the variable were shuffled within the data and the model were retrained. There is no hard and fast rule to choosing which variables are important from this plot, so we will make the cutoff after the "elbow" in the graph, so the top 4 variables year, mileage, horsepower, and model. The rightmost plot shows the contribution to node purity of each variable. Here we can make the distinction among the top 3 variables, horsepower, year, and mileage.
+
+While the other variables influence price to some extent, it is clear that year, mileage, and horsepower are the most influential. This aligns with common knowledge - age and remaining mileage are top of mind when consumers buy or sellers sell cars. Interestingly, horsepower is a key factor as well. While model contributes to decreased MSE, it is not as major a contributor in node purity. While mechanical variables like mpg, cylinder, and torque have relatively moderate importance, external variables such as color, imperfections, and seats do not have strong bearing on price. Saves and views also do not have a strong influence on price. This may indicate that low and high priced cars receive similar amounts of views and saves.
+
+On the whole, the variables that affect Carvana prices are those that are tried and true - year, mileage, and horsepower are factors that consumers have always found important in a car. Even with other information visible on a car's listing page, it's the basics that affect pricing the most. Not surprisingly, sellers should prioritize newer cars to capture a price premium while the car is still young. Since year is a top influencer of price, each additional year theoretically causes the biggest decrease in value compared to the other variables.
+``` {r simple_regression}
+# This simple linear regression serves as a baseline
+
+# Simple Linear Regression
+# We can see that in sample R2 is very good. Over 90%
+model1 = lm(price ~ ., data = train)
+summary(model1)
+
+# Predict on test data
+# and calculate MSE, 11534675
+predicted<-predict(model1, test)
+sum((predicted - test$price)^2)/212
+
+# Out of Sample R2
+# Out of Sample R2 is not as good. It is only 79%.
+Out_R2 = 1 - (sum((predicted - test$price)^2)/sum((test$price - mean(test$price))^2))
+Out_R2
+
+#VIF test reveals there are some pretty high VIF scores
+car::vif(model1)
+
+#Can we apply regularization to achieve better out of sample performance?
+```
+\
+Ridge Regression\
+```{r ridge}
+
+train_x = model.matrix(price ~ ., train)[, -1]
+train_y = train$price
+
+test_x = model.matrix(price ~ ., test)[, -1]
+test_y = test$price
+
+#Apply Ridge Regression to the data
+# This graph right to left shows lambda changing from 4399824 to 439
+model_ridge = glmnet(x = train_x, y = train_y, alpha = 0)
+plot(model_ridge, xvar = "lambda")
+
+model_ridge$lambda
+
+# Tuning
+model_ridge_cv = cv.glmnet(x = train_x, y = train_y, alpha = 0)
+plot(model_ridge_cv)
+
+# What is the MSE and Lambda value at the first and second dash lines?
+min(model_ridge_cv$cvm)
+model_ridge_cv$lambda.min
+
+model_ridge_cv$cvm[model_ridge_cv$lambda == model_ridge_cv$lambda.1se]
+model_ridge_cv$lambda.1se
+
+# Although Ridge does not really push everything to 0, or make the model "simpler".
+# Let's still use the lambda associated with 1 SE
+model_ridge_min = glmnet(x = train_x, y = train_y, alpha = 0)
+plot(model_ridge_min, xvar = "lambda")
+abline(v =log(model_ridge_cv$lambda.1se), col = "red", lty = "dashed")
+
+#Here we plot the coefficients across the values and the dashed red line represents the largest that falls within one standard error of the minimum MSE. 
+# This shows you how much we can constrain the coefficients while still maximizing predictive accuracy.
+
+#Let's see under 1 SE constraint, what are the top 20 influential variables?
+coef(model_ridge_cv, s = "lambda.1se") %>%
+    tidy() %>%
+    filter(row != "(Intercept)") %>%
+    top_n(20, wt = abs(value)) %>%
+    ggplot(aes(value, reorder(row, value))) +
+    geom_point() +
+    ggtitle("Top 20 influential variables") +
+    xlab("Coefficient") +
+    ylab(NULL)
+
+# We can see that, as expected, year2020, and M Performance are the most influential factors.
+# Surprisingly, interior color option is very influential to used car price. If your BMW has some red, brown or expensive leather options, you can sell roughly $2500 more. This is more expensive than new option!
+```
+
+``` {r lasso}
+#Apply lasso regression to the data
+model_lasso = glmnet(x = train_x, y = train_y, alpha = 1)
+plot(model_lasso, xvar = "lambda")
+
+#From the plot we see that some coefficients drastically drop as Lambda increase.
+#Some increases first, then decrease
+#It is hard to tell what is the optimal Lambda
+
+model_lasso_cv = cv.glmnet(x = train_x, y = train_y, alpha = 1)
+plot(model_lasso_cv)
+
+# We can see here the MSE slightly decreases at first.
+# After it hits minimum, it slightly increases
+# After 1 SE it starts to increase sharply
+
+# What is the minimum MSE and corresponding lambda
+min(model_lasso_cv$cvm)
+model_lasso_cv$lambda.min
+
+# What is the 1 SE MSE and corresponding lambda
+model_lasso_cv$cvm[model_lasso_cv$lambda == model_lasso_cv$lambda.1se]
+model_lasso_cv$lambda.1se
+
+#Let's plot out the lines of the minimum and 1SE
+model_lasso_min = glmnet(x = train_x, y = train_y, alpha = 1)
+plot(model_lasso_min, xvar = "lambda")
+abline(v = log(model_lasso_cv$lambda.min), col = "red", lty = "dashed")
+abline(v = log(model_lasso_cv$lambda.1se), col = "red", lty = "dashed")
+
+# We will use the lambda at 1 SE for a simpler model!
+coef(model_lasso_cv, s = "lambda.1se") %>%
+  tidy() %>%
+  filter(row != "(Intercept)") %>%
+  ggplot(aes(value, reorder(row, value), color = value > 0)) +
+  geom_point(show.legend = FALSE) +
+  ggtitle("Influential variables") +
+  xlab("Coefficient") +
+  ylab(NULL)
+
+# We have used Lasso to do feature selection as well
+# Now we only have 32 variables in total. Compared to 45 in the linear regression.
+```
+This is actually an improvement over Ridge regression.\
+As we can see, at 1 SE, Ridge regression has an MSE of 13089228.\
+At 1 SE, Lasso regression has an MSE of 12016611. With 13 fewer variables!\
+\
+Explore both lambda and alpha parameters in Elastic Net.\
+\
+``` {r Elastic_Net}
+fold_id <- sample(1:10, size = length(train_y), replace=TRUE)
+tuning_grid = tibble::tibble(alpha = seq(0, 1, 0.1), mse_min = NA, mse_1se = NA, lambda_min = NA, lambda_1se = NA)
+
+# We created 10 alpha values, we can now iterate through all alpha values, and extract the minimum and 1 SE MSE values and their respective lambda values
+
+for(i in seq_along(tuning_grid$alpha)) {
+  #fit CV model for each alpha value
+  fit = cv.glmnet(train_x, train_y, alpha = tuning_grid$alpha[i], foldid = fold_id)
+  
+  #What are the MSE and Lambda Values?
+  tuning_grid$mse_min[i] = fit$cvm[fit$lambda == fit$lambda.min]
+  tuning_grid$mse_1se[i] = fit$cvm[fit$lambda == fit$lambda.1se]
+  tuning_grid$lambda_min[i] = fit$lambda.min
+  tuning_grid$lambda_1se[i] = fit$lambda.1se
+}
+
+
+# Now we can visualize min MSE/Lambda, and 1SE MSE/Lambda at each alpha level
+tuning_grid
+
+# Let's use a graph to visualize MSE and alpha
+tuning_grid %>%
+  mutate(se = mse_1se - mse_min) %>%
+  ggplot(aes(alpha, mse_min)) +
+  geom_line(size = 2) +
+  geom_ribbon(aes(ymax = mse_min + se, ymin = mse_min - se), alpha = .25) +
+  ggtitle("MSE ± one standard error")
+```
+\
+1: Both the tuning grid and the viz shows that for min MSE, the model performs best at alpha = 1.0.\
+Indicating that a full Lasso model is the best.\
+\
+2: However, we are selecting 1SE here. At 1SE, the model has lowest MSE at alpha = 0.7. Which means that our model should be a mix between lasso and ridge. With 70% weight on lasso and 30% weight on ridge.\
+\
+Now we have identified the best regularization mix. We can implement such model.
+``` {r best_model}
+# select best combination
+model_best = cv.glmnet(train_x, train_y, alpha = 0.7)
+
+# Visualize the influential variables
+# We only have 28 variables left
+
+coef(model_best, s = "lambda.1se") %>%
+  tidy() %>%
+  filter(row != "(Intercept)") %>%
+  ggplot(aes(value, reorder(row, value), color = value > 0)) +
+  geom_point(show.legend = FALSE) +
+  ggtitle("Influential variables") +
+  xlab("Coefficient") +
+  ylab(NULL)
+
+# These are the actual values of coefficients after penalization
+coef(model_best, s = "lambda.1se")
+
+# Our test data does not have year2010, so we add a coumn with all 0 representing year2010
+year2010 = rep(0, 212)
+test_x = cbind(year2010, test_x)
+
+# predict
+pred = predict(model_best, s = model_best$lambda.1se, test_x)
+
+# OOS R2 for Elastic Net
+# Our OOS R2 dropped about 3% from linear regression, not huge regarding prediction power
+# However, we reduced our dimension from 45 to 28. By 17 dimensions.
+SST = sum((mean(test_y) - test_y)^2)
+SSE = sum((pred - test_y)^2)
+1 - SSE/SST
+
+# MSE
+mean((test_y - pred)^2)
+
+##### Calculate R2 for Lasso
+pred = predict(model_lasso_cv, s = model_lasso_cv$lambda.1se, test_x)
+
+SST = sum((mean(test_y) - test_y)^2)
+SSE = sum((pred - test_y)^2)
+1 - SSE/SST
+
+##### Calculate R2 for Ridge
+pred = predict(model_ridge_cv, s = model_ridge_cv$lambda.1se, test_x)
+
+SST = sum((mean(test_y) - test_y)^2)
+SSE = sum((pred - test_y)^2)
+1 - SSE/SST
+```
+We have concluded our Regularization path.\
+\
+To sum up, we chose Elastic Net with alpha = 0.7, and lambda at 1SE over the min MSE.\
+\
+We sacrificed 3% of our prediction power. from 79% to 76%\
+\
+We reduced dimension from 45 to 28. By 17.
+
