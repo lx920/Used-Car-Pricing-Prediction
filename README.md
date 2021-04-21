@@ -13,11 +13,11 @@ There were many missing values in original columns such as mpg and horsepower. D
 Intuitively, a BMW 3 series should have similar mpg/horsepower to another 3 series, if they are similar in other dimensions.
 
 # Data Visualization
-I used ggplot2 to make some data viz before jumping into ML.
-1: Boxplot of different BMW model pricing:  https://ibb.co/n1wCgMn
-2: Depreciation trend line:  https://ibb.co/PCpHCWN
-3: Price and Mileage correlation:  https://ibb.co/X3RVb6y
-4: Inventory Distribution by Car Year:  https://ibb.co/w40vzyP
+I used ggplot2 to make some data viz before jumping into ML.\
+1: Boxplot of different BMW model pricing:  https://ibb.co/n1wCgMn \
+2: Depreciation trend line:  https://ibb.co/PCpHCWN  \
+3: Price and Mileage correlation:  https://ibb.co/X3RVb6y \
+4: Inventory Distribution by Car Year:  https://ibb.co/w40vzyP \
 5: Price Against Imperfections:  https://ibb.co/PFHsrtt
 
 # Random Forest Model
