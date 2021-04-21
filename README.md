@@ -1,5 +1,7 @@
 # Goal
-The goal is to build serveral data visualizations and ML models that can predict used car pricing. The ML models are then compared with each other on accuracy and parsimony. 
+The goal is to build serveral data visualizations and ML models that can predict used car pricing. The ML models are then compared with each other on accuracy and parsimony.\
+\
+Main Models explored here are Linear Regression, Random Forest, Regularization Techniques Ridge/Lasso/EN.
 
 # Data
 The dataset is scraped from web used car listings. The rows are around 1,000. There are 45 car features such as year, make, model, mpg, horsepower, int color, ext color, AWD etc.
