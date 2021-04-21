@@ -6,7 +6,9 @@ The ML models are applied for keeping the prediction power as well as feature se
 Main Models explored here are Linear Regression, Random Forest, Regularization Techniques Ridge/Lasso/EN.
 
 # Data
-The dataset is scraped from web used car listings. The rows are around 1,000. There are 45 columns such as year, make, model, mpg, horsepower, int color, ext color, AWD etc.
+The dataset is scraped from web used car listings. The rows are around 1,000. There are 45 columns such as year, make, model, mpg, horsepower, int color, ext color, AWD etc.\
+\
+They are a combination of categorical and numerical columns. Many have missing data.
 
 # Language and Main Libraries
 R is the language used in this analysis.\
