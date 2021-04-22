@@ -29,15 +29,15 @@ I used ggplot2 to make some data viz before jumping into ML.\
 5: Price Against Imperfections:  https://ibb.co/PFHsrtt
 
 # Random Forest Model
-Planted 500 trees and analyzed variable importance to price. https://ibb.co/hLy3WDr \
+Planted 500 trees and analyzed variable importance to price. https://ibb.co/hLy3WDr 
 
 # Simple Linear Regression
-This serves as a baseline comparison to the following regularization methods.\
+This serves as a baseline comparison to the following regularization methods.
 
 # Ridge Regression
 Selected Lambda based on 1 SE right of minimum MSE\
 Ridge Regression proportionally shrunk most of the coefficients in this case.\
-Did not really do feature selection, nor out-performs.\
+Did not really do feature selection, nor out-performs.
 
 # Lasso Regression
 Selected Lambda based on 1 SE right of minimum MSE\
