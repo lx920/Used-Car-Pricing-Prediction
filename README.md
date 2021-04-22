@@ -29,3 +29,26 @@ I used ggplot2 to make some data viz before jumping into ML.\
 5: Price Against Imperfections:  https://ibb.co/PFHsrtt
 
 # Random Forest Model
+Planted 500 trees and analyzed variable importance to price. https://ibb.co/hLy3WDr \
+
+# Simple Linear Regression
+This serves as a baseline comparison to the following regularization methods.\
+\
+# Ridge Regression
+Selected Lambda based on 1 SE right of minimum MSE\
+Ridge Regression proportionally shrunk most of the coefficients in this case.\
+Did not really do feature selection, nor out-performs.\
+\
+# Lasso Regression
+Selected Lambda based on 1 SE right of minimum MSE\
+Reduced features from 45 to 32.\
+Lambda has a significant effect on the values of coefficients. Can increase or decrease https://ibb.co/vXtmHGG\
+\
+# Elastic Net Regression
+Used GridSearch to find the optimal alpha. alpha --- > 0 to 1 by 0.1.\
+Visualized minMSE, and minMSE +- 1 SE at each different alpha level https://ibb.co/02GFQF6 \
+Reduced features from 45 to 28, by 17. Only the influential variables are retained. https://ibb.co/ygSmZbd \
+Lost 3% prediction power compared to linear regression. 79% -> 76%
+
+
+
