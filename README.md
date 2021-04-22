@@ -1,7 +1,7 @@
 # Goal
 The goal is to visualize the data, and then build ML models that can predict used car pricing. \
 \
-The ML models are applied for keeping the prediction power as well as feature selection\
+We want to have a good prediction power and retain only the important features\
 \
 Main Models explored here are Linear Regression, Random Forest, Regularization Techniques Ridge/Lasso/EN.
 
